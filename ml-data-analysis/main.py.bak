@@ -1,0 +1,56 @@
+import pandas as pd
+from sklearn.metrics.pairwise import cosine_similarity
+from scipy.sparse import csr_matrix
+from pathlib import Path
+
+
+def recommend_movies(user_id, n_recommendations=5):
+    # get similar scores for the target user
+    # (userId zero-based, similarity score)
+    sim_scores = list(enumerate(user_similarities[user_id-1]))
+    sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
+
+    # find the most similar user
+    most_similar_user = sim_scores[1][0] + 1  # account for 0-based index
+
+    # movies rated by the similar user
+    similar_user_movies = ratings[ratings['userId'] == most_similar_user]
+    similar_user_movies = similar_user_movies.sort_values(by='rating', ascending=False)
+
+    # filter out movies already seen by target user
+    user_movies = ratings[ratings['userId'] == user_id]['movieId'].tolist()
+
+    # recommend movies that similar user liked that target user hasn't seen
+    recommendations = similar_user_movies[~similar_user_movies['movieId'].isin(user_movies)].head(n_recommendations)
+
+    return movies[movies['movieId'].isin(recommendations['movieId'])]
+
+
+dataset = Path(__file__).parent.joinpath('ml-latest-small')
+ratings = pd.read_csv(dataset / 'ratings.csv')
+movies = pd.read_csv(dataset / 'movies.csv')
+
+# row = userId , column = movies rated (zero - non-rated)
+user_movie_matrix = ratings.pivot_table(index='userId',
+                                        columns='movieId',
+                                        values='rating'
+                                        )
+# fill missing values with zeros
+user_movie_matrix = user_movie_matrix.fillna(0)
+
+# sparse matrix
+sparse_matrix = csr_matrix(user_movie_matrix)
+
+# cosine similarities between users
+# similarity score of row user and column user (zero-based userId)
+user_similarities = cosine_similarity(sparse_matrix)
+
+print(recommend_movies(user_id=1, n_recommendations=5))
+print('')
+
+ratings_df = ratings_df.merge(movies_df, on='movieId')
+ratings_df['genres'] = ratings_df['genres'].str.split('|')
+ratings_exploded = ratings_df.explode('genres')
+user_genre_avg = ratings_exploded.groupby(['userId', 'genres'])['rating'].mean().reset_index()
+top_genres = user_genre_avg.sort_values(['userId', 'rating'], ascending=[True, False])
+user_profiles = top_genres.groupby('userId')['genres'].apply(list).reset_index()
